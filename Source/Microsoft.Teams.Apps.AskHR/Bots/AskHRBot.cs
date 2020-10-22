@@ -52,6 +52,11 @@ namespace Microsoft.Teams.Apps.AskHR.Bots
         /// </summary>
         public const string ShareFeedback = "share feedback";
 
+        /// <summary>
+        /// All allowed channels
+        /// </summary>
+        private readonly List<string> allowedAlternateChannels = new List<string>() { "directline", "webchat" };
+
         private readonly string expectedTenantId;
         private readonly TelemetryClient telemetryClient;
         private readonly IConfigurationProvider configurationProvider;
@@ -99,7 +104,7 @@ namespace Microsoft.Teams.Apps.AskHR.Bots
         /// <inheritdoc/>
         public override Task OnTurnAsync(ITurnContext turnContext, CancellationToken cancellationToken = default(CancellationToken))
         {
-            if (!this.IsActivityFromExpectedTenant(turnContext))
+            if (!this.allowedAlternateChannels.Contains(turnContext.Activity.ChannelId) && !this.IsActivityFromExpectedTenant(turnContext))
             {
                 this.telemetryClient.TrackTrace($"Unexpected tenant id {turnContext.Activity.Conversation.TenantId}", SeverityLevel.Warning);
                 return Task.CompletedTask;
@@ -132,9 +137,23 @@ namespace Microsoft.Teams.Apps.AskHR.Bots
 
                 await this.SendTypingIndicatorAsync(turnContext);
 
-                switch (message.Conversation.ConversationType)
+                string convoType = string.Empty;
+
+                if (this.allowedAlternateChannels.Contains(turnContext.Activity.ChannelId))
+                {
+                    convoType = turnContext.Activity.ChannelId;
+                }
+                else
+                {
+                    convoType = message.Conversation.ConversationType;
+                }
+
+                // switch (message.Conversation.ConversationType)
+                switch (convoType)
                 {
                     case "personal":
+                    case "directline":
+                    case "webchat":
                         await this.OnMessageActivityInPersonalChatAsync(message, turnContext, cancellationToken);
                         break;
 
@@ -229,9 +248,29 @@ namespace Microsoft.Teams.Apps.AskHR.Bots
         // Handle message activity in 1:1 chat
         private async Task OnMessageActivityInPersonalChatAsync(IMessageActivity message, ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
         {
-            if (!string.IsNullOrEmpty(message.ReplyToId) && (message.Value != null) && ((JObject)message.Value).HasValues)
+            string messageBackText = "";
+
+            if(message.Value != null && ((JObject)message.Value).HasValues)
             {
-                this.telemetryClient.TrackTrace("Card submit in 1:1 chat");
+                JObject valueObject = (JObject)message.Value;
+                if (valueObject.ContainsKey("msteams"))
+                {
+                    JToken tkn_msteams = valueObject["msteams"];
+                    messageBackText = tkn_msteams["text"]?.Value<string>() ?? string.Empty;
+                }
+            }
+
+            //Since adaptive card messageBack button presses aren't feeding the message.Text property, we need to capture from the 
+            //activity Value and feed the text.
+            if (this.allowedAlternateChannels.Contains(turnContext.Activity.ChannelId) && string.IsNullOrEmpty(message.Text))
+            {
+                message.Text = messageBackText;
+            }
+
+            //Teams will include a ReplyToId when clicking a card button.  For DL and WebChat, we are looking for activities with a Value payload.
+            if ((!string.IsNullOrEmpty(message.ReplyToId) || this.allowedAlternateChannels.Contains(turnContext.Activity.ChannelId)) && (message.Value != null) && ((JObject)message.Value).HasValues)
+            {
+                this.telemetryClient.TrackTrace("Card submit in 1:1 chat from Teams");
                 await this.OnAdaptiveCardSubmitInPersonalChatAsync(message, turnContext, cancellationToken);
                 return;
             }
@@ -594,23 +633,30 @@ namespace Microsoft.Teams.Apps.AskHR.Bots
 
             try
             {
-                var kbId = await this.configurationProvider.GetSavedEntityDetailAsync(ConfigurationEntityTypes.KnowledgeBaseId);
-                if (string.IsNullOrEmpty(kbId))
-                {
-                    await turnContext.SendActivityAsync(MessageFactory.Attachment(UnrecognizedInputCard.GetCard(message, Resource.ConfigurationIssueMessage)));
-                    this.telemetryClient.TrackTrace("Knowledge base ID was not found in configuration table", SeverityLevel.Warning);
-                    return null;
-                }
+                ///
+                /// Temporarily moved QnA configuration to appsettings exclusively to make it easier to test.  Can move it
+                /// back to Azure table storage for production use.
+                ///
+                //DirectLine Temp
 
-                var endpointKey = await this.configurationProvider.GetSavedEntityDetailAsync(ConfigurationEntityTypes.QnAMakerEndpointKey);
-                if (string.IsNullOrEmpty(endpointKey))
-                {
-                    await turnContext.SendActivityAsync(MessageFactory.Attachment(UnrecognizedInputCard.GetCard(message, Resource.ConfigurationIssueMessage)));
-                    this.telemetryClient.TrackTrace("QnAMaker endpoint key was not found in configuration table", SeverityLevel.Warning);
-                    return null;
-                }
+                //var kbId = await this.configurationProvider.GetSavedEntityDetailAsync(ConfigurationEntityTypes.KnowledgeBaseId);
+                //if (string.IsNullOrEmpty(kbId))
+                //{
+                //    await turnContext.SendActivityAsync(MessageFactory.Attachment(UnrecognizedInputCard.GetCard(message, Resource.ConfigurationIssueMessage)));
+                //    this.telemetryClient.TrackTrace("Knowledge base ID was not found in configuration table", SeverityLevel.Warning);
+                //    return null;
+                //}
 
-                var qnaMaker = this.qnaMakerFactory.GetQnAMaker(kbId, endpointKey);
+                //var endpointKey = await this.configurationProvider.GetSavedEntityDetailAsync(ConfigurationEntityTypes.QnAMakerEndpointKey);
+                //if (string.IsNullOrEmpty(endpointKey))
+                //{
+                //    await turnContext.SendActivityAsync(MessageFactory.Attachment(UnrecognizedInputCard.GetCard(message, Resource.ConfigurationIssueMessage)));
+                //    this.telemetryClient.TrackTrace("QnAMaker endpoint key was not found in configuration table", SeverityLevel.Warning);
+                //    return null;
+                //}
+
+                //var qnaMaker = this.qnaMakerFactory.GetQnAMaker(kbId, endpointKey);
+                var qnaMaker = this.qnaMakerFactory.GetQnAMakerFromAppSettings();
 
                 var response = await qnaMaker.GetAnswersAsync(turnContext);
                 this.telemetryClient.TrackTrace($"Received {response?.Count() ?? 0} answers from QnAMaker, with top score {response?.FirstOrDefault()?.Score ?? 0}");

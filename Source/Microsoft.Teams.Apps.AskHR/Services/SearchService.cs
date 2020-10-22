@@ -40,6 +40,13 @@ namespace Microsoft.Teams.Apps.AskHR.Services
         /// <param name="telemetryClient">TelemetryClient provided by DI</param>
         public SearchService(IConfiguration configuration, TelemetryClient telemetryClient)
         {
+            //DirectLine Temp
+            //Remove this conditional to ensure search service configuration is required.
+            if (string.IsNullOrEmpty(configuration["SearchServiceName"]))
+            {
+                return;
+            }
+
             this.telemetryClient = telemetryClient;
 
             this.searchServiceClient = new SearchServiceClient(

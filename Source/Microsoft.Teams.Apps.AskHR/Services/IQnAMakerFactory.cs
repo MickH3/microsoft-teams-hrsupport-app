@@ -18,5 +18,12 @@ namespace Microsoft.Teams.Apps.AskHR.Services
         /// <param name="endpointKey">The endpoint key</param>
         /// <returns>A QnAMaker instance</returns>
         QnAMaker GetQnAMaker(string knowledgeBaseId, string endpointKey);
+        /// <summary>
+        /// Gets the <see cref="QnAMaker"/> instance based on app settings KB ID
+        /// 
+        /// DirectLine Temp
+        /// </summary>
+        /// <returns>A QnAMaker instance</returns>
+        QnAMaker GetQnAMakerFromAppSettings();
     }
 }

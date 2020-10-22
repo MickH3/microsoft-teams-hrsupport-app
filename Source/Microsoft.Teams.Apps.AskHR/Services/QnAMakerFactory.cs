@@ -50,5 +50,29 @@ namespace Microsoft.Teams.Apps.AskHR.Services
                 return new QnAMaker(serviceConfig, options, this.httpClient);
             });
         }
+
+        /// <inheritdoc/>
+        public QnAMaker GetQnAMakerFromAppSettings()
+        {
+            //DirectLine Temp
+            string knowledgeBaseId = this.configuration["QnAMakerKBId"];
+            string endpointKey = this.configuration["QnAMakerEndpointKey"];
+
+            return this.qnaMakerInstances.GetOrAdd(knowledgeBaseId, (kbId) =>
+            {
+                var serviceConfig = new QnAMakerService
+                {
+                    KbId = kbId,
+                    EndpointKey = endpointKey,
+                    Hostname = this.configuration["QnAMakerHostUrl"]
+                };
+                var options = new QnAMakerOptions
+                {
+                    Top = 1,
+                    ScoreThreshold = float.Parse(this.configuration["ScoreThreshold"], CultureInfo.InvariantCulture),
+                };
+                return new QnAMaker(serviceConfig, options, this.httpClient);
+            });
+        }
     }
 }
